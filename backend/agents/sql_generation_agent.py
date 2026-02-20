@@ -12,6 +12,7 @@ import asyncpg
 import sqlparse
 import json
 from datetime import datetime, timedelta
+from backend.tools.cache_manager import CacheManager
 
 class SQLGenerationAgent(BaseAgent):
     """
@@ -36,6 +37,7 @@ class SQLGenerationAgent(BaseAgent):
         self.schema_cache = None
         self.schema_cache_time = None
         self.cache_ttl = 3600  # 1 hour
+        self.cache = CacheManager()
     
     async def initialize(self):
         """Initialize database connection pool"""
@@ -357,19 +359,29 @@ Output ONLY the SQL query.and
             return False
         
     async def _execute_query(self, sql: str) -> List[Dict]:
-        """Execute validated SQL query"""
+        """Execute with caching"""
+        
+        # Check cache first
+        cached = self.cache.get_cached_query(sql)
+        if cached:
+            self.logger.info(f"✨ Cache hit! Returning cached results")
+            return cached
+        
+        # Cache miss - execute query
         try:
             async with self.db_pool.acquire() as conn:
                 rows = await conn.fetch(sql)
             
-            # Convert to list of dicts
             results = [dict(row) for row in rows]
             
-            self.logger.info(f"Query returned {len(results)} rows")
+            # Cache results (10 min TTL)
+            self.cache.cache_query_result(sql, results, ttl=600)
+            
+            self.logger.info(f"Query executed and cached ({len(results)} rows)")
             return results
             
         except Exception as e:
-            self.logger.error(f"Query execution failed: {e}")
+            self.logger.error(f"Query failed: {e}")
             raise
 
     def _validate_results(self, results: List[Dict]) -> List[Dict]:

@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 from .base_agent import BaseAgent
 from openai import AsyncOpenAI
 import json
+from collections import defaultdict
 
 class PlanningAgent(BaseAgent):
     """
@@ -276,18 +277,58 @@ Rules:
         
         return plan
     
+    # Add this method to PlanningAgent class (replaces simple version):
+
     def _has_circular_dependencies(self, steps: List[Dict]) -> bool:
-        """Simple cycle detection"""
-        # For Week 2, simple check
-        # Week 3+ will implement proper DFS
-        
+        """
+        Detect circular dependencies using DFS
+
+        Example circular dependency:
+        Step 1 depends on Step 3
+        Step 2 depends on Step 1
+        Step 3 depends on Step 2  ← CYCLE!
+        """
+
+        # Build adjacency list
+        graph = defaultdict(list)
         for step in steps:
-            deps = step.get('dependencies', [])
-            if step['step'] in deps:
-                return True  # Self-dependency
-        
-        return False
-    
+            step_num = step['step']
+            for dep in step.get('dependencies', []):
+                graph[dep].append(step_num)
+
+        # Track visited states
+        WHITE = 0  # Not visited
+        GRAY = 1   # Currently exploring
+        BLACK = 2  # Fully explored
+
+        colors = {s['step']: WHITE for s in steps}
+
+        def dfs(node):
+            """Depth-First Search to detect cycles"""
+            if colors[node] == GRAY:
+                return True  # Back edge found = cycle!
+
+            if colors[node] == BLACK:
+                return False  # Already explored
+
+            colors[node] = GRAY  # Mark as exploring
+
+            # Visit neighbors
+            for neighbor in graph[node]:
+                if dfs(neighbor):
+                    return True
+
+            colors[node] = BLACK  # Mark as done
+            return False
+
+        # Check each node
+        for step in steps:
+            if colors[step['step']] == WHITE:
+                if dfs(step['step']):
+                    return True  # Cycle found
+
+        return False  # No cycles
+
     def _estimate_execution_time(self, plan: Dict) -> float:
         """Estimate total execution time"""
         
