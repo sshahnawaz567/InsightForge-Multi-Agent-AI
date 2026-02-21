@@ -28,3 +28,6 @@ python-dotenv
 pyyaml
 requests
 faker
+
+sentence-transformers
+beautifulsoup4

@@ -160,7 +160,7 @@ class PlanningAgent(BaseAgent):
         }
 
     def _create_root_cause_plan(self, query: Dict) -> Dict:
-        """Plan for root cause analysis"""
+        """Plan for root cause analysis (NOW WITH CONTEXT + SYNTHESIS)"""
         return {
             'plan_id': self._generate_plan_id(),
             'query_type': 'root_cause_analysis',
@@ -171,7 +171,8 @@ class PlanningAgent(BaseAgent):
                     'task': 'fetch_data',
                     'params': {
                         'metrics': query.get('metrics', []),
-                        'time_period': query.get('time_period')
+                        'time_period': query.get('time_period'),
+                        'label': 'current_period'
                     },
                     'dependencies': []
                 },
@@ -181,31 +182,38 @@ class PlanningAgent(BaseAgent):
                     'task': 'fetch_data',
                     'params': {
                         'metrics': query.get('metrics', []),
-                        'time_period': query.get('comparison_period')
+                        'time_period': query.get('comparison_period'),
+                        'label': 'comparison_period'
                     },
                     'dependencies': []
                 },
                 {
                     'step': 3,
-                    'agent': 'sql_generation',
-                    'task': 'breakdown_by_dimensions',
-                    'params': {
-                        'metrics': query.get('metrics', []),
-                        'dimensions': query.get('dimensions', ['product_category', 'region']),
-                        'time_period': query.get('time_period')
-                    },
-                    'dependencies': [1]
+                    'agent': 'calculation',
+                    'task': 'compare_periods',
+                    'params': {},
+                    'dependencies': [1, 2],
+                    'critical': True
                 },
                 {
-                    'step': 4,
-                    'agent': 'calculation',
-                    'task': 'identify_biggest_changes',
+                    'step': 4,  # NEW: Context search
+                    'agent': 'context',
+                    'task': 'search_external_factors',
+                    'params': {
+                        'time_period': query.get('time_period')
+                    },
+                    'dependencies': [3]  # Wait for calculation to know what changed
+                },
+                {
+                    'step': 5,  # NEW: Synthesis
+                    'agent': 'synthesis',
+                    'task': 'generate_insights',
                     'params': {},
-                    'dependencies': [1, 2, 3],
+                    'dependencies': [1, 2, 3, 4],  # Wait for everything
                     'critical': True
                 }
             ],
-            'parallel_groups': [[1, 2]]
+            'parallel_groups': [[1, 2]]  # Steps 1 & 2 can run in parallel
         }
     
     async def _create_llm_plan(self, query: Dict) -> Dict:
