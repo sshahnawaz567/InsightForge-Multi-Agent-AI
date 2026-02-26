@@ -67,7 +67,7 @@ class SQLGenerationAgent(BaseAgent):
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Main execution - generate and run SQL"""
 
-        # ENsure database is initialized
+        # Ensure database is initialized
         await self.initialize()
 
         task = input_data['task']
@@ -75,18 +75,23 @@ class SQLGenerationAgent(BaseAgent):
 
         self.logger.info(f"Executing task: {task}")
 
-        # GEt current database schema
+        # Get current database schema
         schema = await self._get_schema()
 
+        # Normalize task name (handle various formats)
+        task_lower = task.lower()
+
         # Generate SQL based on task
-        if task == 'fetch_data':
+        if task == 'fetch_data' or 'fetch' in task_lower and 'revenue' in task_lower:
             sql = await self._generate_fetch_query(params, schema)
-        elif task == 'breakdown_by_dimensions':
+        elif task == 'breakdown_by_dimensions' or 'breakdown' in task_lower or 'by category' in task_lower or 'by product' in task_lower:
             sql = await self._generate_breakdown_query(params, schema)
-        elif task == 'fetch_timeseries':
+        elif task == 'fetch_timeseries' or 'timeseries' in task_lower or 'trend' in task_lower:
             sql = await self._generate_timeseries_query(params, schema)
         else:
-            raise ValueError(f"Unknown task: {task}")
+            # Fallback: Use generic query generation for unknown tasks
+            self.logger.warning(f"Unknown task '{task}', using generic SQL generation")
+            sql = await self._generate_generic_query(task, params, schema)
         
         # Validate SQL
         if not self._validate_syntax(sql):
@@ -108,6 +113,73 @@ class SQLGenerationAgent(BaseAgent):
             'row_count': len(validated_results),
             'columns': list(validated_results[0].keys()) if validated_results else []
         }
+    
+    async def _generate_generic_query(
+        self,
+        task_description: str,
+        params: Dict,
+        schema: Dict
+    ) -> str:
+        """
+        Generate SQL for any task using LLM
+        Fallback when task doesn't match predefined types
+        """
+
+        self.logger.info(f"Generating SQL for: {task_description}")
+
+        # Extract any available parameters
+        metrics = params.get('metrics', [])
+        dimensions = params.get('dimensions', [])
+        time_period = params.get('time_period', {})
+        filters = params.get('filters', {})
+
+        # Build comprehensive prompt
+        prompt = f"""Generate a PostgreSQL SELECT query.
+
+    Task: {task_description}
+
+    Available schema:
+    {json.dumps(schema, indent=2)}
+
+    Requirements:
+    - Metrics to calculate: {metrics if metrics else 'revenue (SUM of order_total)'}
+    - Dimensions to group by: {dimensions if dimensions else 'infer from task'}
+    - Time period: {time_period if time_period else 'last month'}
+    - Filters: {filters if filters else 'none'}
+
+    Common metric mappings:
+    - revenue → SUM(order_total)
+    - order_count → COUNT(order_id)
+    - average_order_value → AVG(order_total)
+
+    Rules:
+    1. ONLY use tables and columns from the schema above
+    2. Filter by status = 'completed' for revenue calculations
+    3. Use proper date filtering for time periods
+    4. Add appropriate GROUP BY if analyzing by categories/dimensions
+    5. Order by the main metric DESC
+    6. Limit to 1000 rows
+    7. For "last month": WHERE order_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                         AND order_date < DATE_TRUNC('month', CURRENT_DATE)
+
+    Output ONLY the SQL query, no explanations or markdown.
+    """
+
+        response = await self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=500
+        )
+
+        sql = response.choices[0].message.content.strip()
+
+        # Clean up
+        sql = sql.replace('```sql', '').replace('```', '').strip()
+
+        self.logger.info(f"Generated SQL: {sql[:100]}...")
+
+        return sql
     
     async def _get_schema(self) -> Dict[str, List[Dict]]:
         """Fetch database schema with caching"""

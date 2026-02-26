@@ -304,10 +304,26 @@ class InsightForgeWorkflow:
         return state
     
     async def _synthesis_node(self, state: AgentState) -> AgentState:
-        """Node 6: Generate file insights"""
-
+        """Node 6: Generate final insights"""
+        
         print("\n📊 Step 6: Synthesis")
         start_time = time.time()
+        
+        # Skip synthesis for simple queries (just return SQL results)
+        query_type = state.get('query_type', '')
+        if query_type in ['simple_lookup', 'dimension_breakdown']:
+            print("   ⏭️  Skipping synthesis for simple query")
+            
+            # Just format SQL results nicely
+            if state['sql_results']:
+                state['executive_summary'] = f"Query returned {state['sql_results'][0].get('row_count', 0)} results"
+                state['key_findings'] = ["Data retrieved successfully"]
+            
+            exec_time = time.time() - start_time
+            state['execution_times']['synthesis'] = exec_time
+            state['agents_executed'].append('synthesis')
+            
+            return state
         
         # Prepare all results for synthesis
         dependency_results = {
@@ -354,21 +370,24 @@ class InsightForgeWorkflow:
 
     def _route_after_sql(self, state: AgentState) -> str:
         """
-        Decide next step after SQL excution
-        
-        simple queries(simple_lookup) -> END
-        Complex queries (root_cause, comparison) -> Calculation
+        Decide next step after SQL execution
+
+        Simple queries (simple_lookup, dimension_breakdown) → END
+        Complex queries (root_cause, comparison) → calculation
         """
 
         query_type = state.get('query_type', '')
 
-        if query_type == 'simple_lookup':
-            print("\n   → Simple query, ending here")
+        # Simple queries that don't need calculation/context
+        simple_types = ['simple_lookup', 'dimension_breakdown', 'aggregation']
+
+        if query_type in simple_types:
+            print(f"\n   → Simple query ({query_type}), ending here")
             return "simple"
         else:
-            print("\n   → Complex query, continuing analysis")
+            print(f"\n   → Complex query ({query_type}), continuing analysis")
             return "calculation"
-        
+
     # ==================== Main Execution ====================
 
     async def run(self, query: str) -> Dict[str, Any]:

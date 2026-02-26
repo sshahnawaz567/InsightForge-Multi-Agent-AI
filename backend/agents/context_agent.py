@@ -128,6 +128,41 @@ class ContextAgent(BaseAgent):
         change_description = self._build_change_description(dependency_results)
         time_period = params.get('time_period', {})
         
+    
+    def _search_external_factors(
+        self,
+        params: Dict,
+        dependency_results: Dict
+    ) -> Dict[str, Any]:
+        """
+        Search for external factors using Pinecone semantic search
+        """
+
+        self.logger.info("Searching for external factors...")
+
+        # Build search query from previous results
+        try:
+            change_description = self._build_change_description(dependency_results)
+        except Exception as e:
+            self.logger.warning(f"Could not build change description: {e}")
+            change_description = "business performance metrics"
+
+        time_period = params.get('time_period', {})
+
+        self.logger.info(f"Search query: {change_description}")
+
+        # If no meaningful description, return minimal results
+        if not change_description or change_description == "revenue change":
+            self.logger.info("No specific change detected, returning generic factors")
+            return {
+                'factors_found': 0,
+                'factors': [],
+                'by_category': {},
+                'high_impact_factors': [],
+                'search_query': change_description,
+                'search_method': 'pinecone' if self.pinecone else 'fallback'  # ← Add this
+            }
+        
         self.logger.info(f"Change description: {change_description}")
 
         # Search knowledge base using semantic similarity
@@ -147,34 +182,50 @@ class ContextAgent(BaseAgent):
         self.logger.info(f"Found {len(relevant_factors)} relevant factors")
         
         return result
+
     
     def _build_change_description(self, dependency_results: Dict) -> str:
-        """
-        Build search query from previous agent results
-        Example: "REvenue dropped 79% in December 2024
-        """
+        """Build search query from calculation results"""
+
         description_parts = []
 
         for step_num, result in dependency_results.items():
             if result.get('status') != 'success':
                 continue
+            
+            agent_result = result.get('result')
 
-            agent_result = result.get('result', {})
-
+            # Skip if result is None
+            if agent_result is None:
+                continue
+            
+            # Check if it's a dict (defensive programming)
+            if not isinstance(agent_result, dict):
+                continue
+            
             # From calculation agent
             if 'percentage_change' in agent_result:
-                pct = agent_result['percentage_change']
-                direction = agent_result['direction']
-                description_parts.append(f"revenue {direction} {abs(pct):.0f}%")
-            
-            # From SQL agent (extract time period)
-            if 'sql' in agent_result:
-                sql = agent_result['sql']
-                if 'December' in sql or '2024-12' in sql:
-                    description_parts.append("in December 2024")
-        
-        return " ".join(description_parts) if description_parts else "revenue change"
-        
+                pct = agent_result.get('percentage_change')
+                direction = agent_result.get('direction', 'change')
+                if pct is not None:
+                    description_parts.append(f"revenue {direction} {abs(pct):.0f}%")
+
+            # From SQL agent (for queries without calculations)
+            elif 'sql' in agent_result:
+                sql = agent_result.get('sql', '')
+                # Extract info from SQL query
+                if 'product_category' in sql.lower():
+                    description_parts.append("revenue by product category")
+                if 'region' in sql.lower():
+                    description_parts.append("revenue by region")
+
+        # Build final description
+        if description_parts:
+            return " ".join(description_parts)
+        else:
+            # Fallback: generic search
+            return "business metrics revenue sales"
+    
     def _semantic_search(
         self,
         query: str,

@@ -1,0 +1,13 @@
+# PersistentVolumeClaim = Request for storage
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: insightforge
+spec:
+  accessModes:
+    - ReadWriteOnce  # Only one pod can mount (RW)
+  resources:
+    requests:
+      storage: 5Gi  # Request 5GB disk

@@ -1,0 +1,34 @@
+minikube stop      # Stop cluster
+minikube delete    # Delete cluster
+minikube dashboard # Open web UI
+minikube ssh       # SSH into node
+minikube logs      # View logs
+
+
+# Start services
+docker-compose up -d
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes (DELETES DATA!)
+docker-compose down -v
+
+# Restart a service
+docker-compose restart backend
+
+# View logs
+docker-compose logs -f backend
+
+# Execute command in container
+docker-compose exec backend bash
+docker-compose exec postgres psql -U postgres -d insightforge
+
+# See resource usage
+docker stats
+
+# Clean up unused images
+docker system prune -a
+
+# See disk usage
+docker system df

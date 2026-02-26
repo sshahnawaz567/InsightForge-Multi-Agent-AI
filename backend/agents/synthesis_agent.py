@@ -18,6 +18,7 @@ from typing import Dict, Any, List, Optional
 from .base_agent import BaseAgent
 from openai import AsyncOpenAI
 import json
+from datetime import datetime
 
 class SynthesisAgent(BaseAgent):
     """
@@ -127,25 +128,34 @@ Output JSON format:
         """Extract relevant data from all previous agents"""
 
         data = {
-            'timestamp': None,
+            'timestamp': datetime.now().isoformat(),
             'metric_changes': [],
             'external_factors': [],
             'data_breakdown': [],
-            'statistical_tests': []
+            'statistical_tests': [],
+            'sql_results': []
         }
 
         for step_num, result in dependency_results.items():
             if result.get('status') != 'success':
                 continue
-
+            
             agent_id = result.get('agent_id', '')
-            agent_result = result.get('result', {})
+            agent_result = result.get('result')
 
+            # Skip if result is None
+            if agent_result is None:
+                continue
+            
+            # Check if it's a dict
+            if not isinstance(agent_result, dict):
+                continue
+            
             # From calculation agent
             if agent_id == 'calculation':
                 if 'percentage_change' in agent_result:
                     data['metric_changes'].append({
-                        'metric': 'revenue',  # Could be extracted
+                        'metric': 'revenue',
                         'current': agent_result.get('current_value'),
                         'previous': agent_result.get('comparison_value'),
                         'change_pct': agent_result.get('percentage_change'),
@@ -157,19 +167,27 @@ Output JSON format:
                 if 'top_changes' in agent_result:
                     data['data_breakdown'] = agent_result['top_changes']
 
-            #From context agent
-            if agent_id == 'context':
+            # From context agent
+            elif agent_id == 'context':
                 if 'factors' in agent_result:
                     data['external_factors'] = agent_result['factors']
 
+            # From SQL agent (for simple queries without calculation)
+            elif agent_id == 'sql_generation':
+                if 'results' in agent_result:
+                    data['sql_results'].extend(agent_result['results'])
+
         return data
-    
+
     def _build_synthesis_prompt(self, analysis_data: Dict) -> str:
         """Build prompt for LLM synthesis"""
-        
+
         prompt_parts = ["Analyze this business data and provide insights:\n"]
-        
-        # Metric changes
+
+        # Check if we have metric changes (comparison/root cause queries)
+        has_comparison = bool(analysis_data['metric_changes'])
+
+        # Metric changes (for comparison queries)
         if analysis_data['metric_changes']:
             prompt_parts.append("\n## Metric Changes:")
             for change in analysis_data['metric_changes']:
@@ -181,26 +199,46 @@ Output JSON format:
                 )
                 prompt_parts.append(f"  Status: {change['interpretation']}")
 
+        # SQL Results (for simple queries without comparison)
+        elif analysis_data['sql_results']:
+            prompt_parts.append("\n## Query Results:")
+            prompt_parts.append(f"Retrieved {len(analysis_data['sql_results'])} data points:")
+
+            # Show first few results
+            for i, row in enumerate(analysis_data['sql_results'][:5], 1):
+                row_summary = ", ".join([f"{k}: {v}" for k, v in row.items()])
+                prompt_parts.append(f"{i}. {row_summary}")
+
+            if len(analysis_data['sql_results']) > 5:
+                prompt_parts.append(f"... and {len(analysis_data['sql_results']) - 5} more rows")
+
+            # Provide context for synthesis
+            prompt_parts.append("\nTask: Provide a brief executive summary of these results.")
+            prompt_parts.append("Focus on: Key patterns, top performers, notable insights.")
 
         # External factors
         if analysis_data['external_factors']:
             prompt_parts.append("\n## External Factors Found:")
-            for factor in analysis_data['external_factors'][:5]:  # Top 5
+            for factor in analysis_data['external_factors'][:5]:
                 prompt_parts.append(
                     f"- [{factor['impact'].upper()}] {factor['content']}"
                 )
                 prompt_parts.append(f"  Source: {factor['source']}")
-        
+
         # Data breakdown
         if analysis_data['data_breakdown']:
             prompt_parts.append("\n## Dimensional Breakdown:")
-            for item in analysis_data['data_breakdown'][:3]:  # Top 3
+            for item in analysis_data['data_breakdown'][:3]:
                 prompt_parts.append(
                     f"- {item['dimension']}: {item['percentage_change']:+.1f}% change"
                 )
-        
-        prompt_parts.append("\n\nProvide executive insights in JSON format.")
-        
+
+        # Adjust instructions based on query type
+        if has_comparison:
+            prompt_parts.append("\n\nProvide executive insights with root causes and recommendations in JSON format.")
+        else:
+            prompt_parts.append("\n\nProvide a concise executive summary highlighting key insights in JSON format.")
+
         return "\n".join(prompt_parts)
     
     def _identify_data_sources(self, dependency_results: Dict) -> List[str]:

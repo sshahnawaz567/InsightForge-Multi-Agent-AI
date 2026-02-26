@@ -362,15 +362,46 @@ class CalculationAgent(BaseAgent):
         for col in  metric_cols:
             if col in row:
                 value = row[col]
-                if isinstance(value, Decimal):
-                    return float(value)
+
+                # Handle None/NULL values
+            if value is None:
+                self.logger.warning(f"Column '{col}' is NULL, using 0.0")
+                continue  # Try next column
+            
+            # Handle Decimal type
+            if isinstance(value, Decimal):
                 return float(value)
             
-         # If no known column, take first numeric value
-        for value in row.values():
-            if isinstance(value, (int, float, Decimal)):
+            # Handle numeric types
+            if isinstance(value, (int, float)):
                 return float(value)
-        
+            
+            # Try to convert string to float
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                self.logger.warning(f"Could not convert '{col}' value '{value}' to float")
+                continue
+            
+        # If no known column worked, take first numeric value
+        for key, value in row.items():
+            if value is None:
+                continue
+            
+            if isinstance(value, Decimal):
+                return float(value)
+            
+            if isinstance(value, (int, float)):
+                return float(value)
+            
+            # Try converting to float
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                continue
+            
+        # No numeric value found
+        self.logger.warning(f"No numeric value found in row: {row}")
         return 0.0   
 
     def _get_dimension_name(self, row: Dict) -> str:

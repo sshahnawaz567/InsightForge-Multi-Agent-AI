@@ -20,7 +20,13 @@ class Settings:
     
     # Redis
     REDIS_URL: str = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    
+
+    # Pinecone Configuration
+    PINECONE_API_KEY: str = os.getenv('PINECONE_API_KEY', '')
+    PINECONE_ENVIRONMENT: str = os.getenv('PINECONE_ENVIRONMENT', 'us-west1-gcp')
+    PINECONE_INDEX_NAME: str = os.getenv('PINECONE_INDEX_NAME', 'insightforge-context')
+
+
     # Agent Configuration
     AGENT_MAX_RETRIES: int = 3
     AGENT_TIMEOUT: int = 30  # seconds
@@ -43,6 +49,10 @@ class Settings:
         
         if not cls.DATABASE_URL:
             errors.append("DATABASE_URL not set in .env")
+
+        # Pinecone is optional for now
+        if not cls.PINECONE_API_KEY:
+            print("⚠️  Warning: PINECONE_API_KEY not set (Context Agent will use in-memory fallback)")
         
         if errors:
             raise ValueError("Configuration errors:\n" + "\n".join(errors))
