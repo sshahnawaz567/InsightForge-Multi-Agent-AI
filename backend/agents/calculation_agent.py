@@ -169,35 +169,35 @@ class CalculationAgent(BaseAgent):
 
         for step_num, result in dependency_results.items():
             if result.get('status') == 'success':
-                step_result = result['data']['result']
+                step_result = result.get('result', {})
                 if 'breakdown' in step_result.get('task', ''):
                     breakdown_data = step_result['results']
                     break
 
-            if not breakdown_data:
-                raise ValueError("No breakdown data found in dependencies")
-            
-            # Analyze each dimension
-            changes = []
+        if not breakdown_data:
+            raise ValueError("No breakdown data found in dependencies")
 
-            for row in breakdown_data:
-                # Assuming row has: dimension, current_value, previous_value
-                dimension_name = self._get_dimension_name(row)
-                current = self._extract_value(row, 'revenue', 'current')
-                previous = self._extract_value(row, 'revenue', 'previous')
+        # Analyze each dimension
+        changes = []
 
-                if previous and previous != 0:
-                    pct_change = ((current - previous) / previous) * 100
+        for row in breakdown_data:
+            # Assuming row has: dimension, current_value, previous_value
+            dimension_name = self._get_dimension_name(row)
+            current = self._extract_value(row, 'revenue', 'current')
+            previous = self._extract_value(row, 'revenue', 'previous')
 
-                    changes.append({
-                        'dimension': dimension_name,
-                        'current_value': float(current),
-                        'previous_value': float(previous),
-                        'absolute_change': float(current - previous),
-                        'percentage_change': round(pct_change, 2)
-                    })
+            if previous and previous != 0:
+                pct_change = ((current - previous) / previous) * 100
 
-            # Sort by absolute percentage change(biggest impact first)
+                changes.append({
+                    'dimension': dimension_name,
+                    'current_value': float(current),
+                    'previous_value': float(previous),
+                    'absolute_change': float(current - previous),
+                    'percentage_change': round(pct_change, 2)
+                })
+
+        # Sort by absolute percentage change(biggest impact first)
         changes.sort(key=lambda x: abs(x['percentage_change']), reverse=True)
 
         # Top 5 biggest changes
@@ -234,7 +234,7 @@ class CalculationAgent(BaseAgent):
 
         for step_num, result in dependency_results.items():
             if result.get('status') == 'success':
-                step_result = result['data']['result']
+                step_result = result.get('result', {})
                 if 'timeseries' in step_result.get('task', ''):
                     timeseries_data = step_result['results']
                     break
@@ -364,24 +364,24 @@ class CalculationAgent(BaseAgent):
                 value = row[col]
 
                 # Handle None/NULL values
-            if value is None:
-                self.logger.warning(f"Column '{col}' is NULL, using 0.0")
-                continue  # Try next column
-            
-            # Handle Decimal type
-            if isinstance(value, Decimal):
-                return float(value)
-            
-            # Handle numeric types
-            if isinstance(value, (int, float)):
-                return float(value)
-            
-            # Try to convert string to float
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                self.logger.warning(f"Could not convert '{col}' value '{value}' to float")
-                continue
+                if value is None:
+                    self.logger.warning(f"Column '{col}' is NULL, using 0.0")
+                    continue  # Try next column
+
+                # Handle Decimal type
+                if isinstance(value, Decimal):
+                    return float(value)
+
+                # Handle numeric types
+                if isinstance(value, (int, float)):
+                    return float(value)
+
+                # Try to convert string to float
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    self.logger.warning(f"Could not convert '{col}' value '{value}' to float")
+                    continue
             
         # If no known column worked, take first numeric value
         for key, value in row.items():

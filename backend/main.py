@@ -14,8 +14,8 @@ import asyncio
 import uvicorn
 
 #Import agents and worflow
-from backend.agents.langgraph_workflow import InsightForgeWorkflow
-from backend.config.settings import settings
+from agents.langgraph_workflow import InsightForgeWorkflow
+from config.settings import settings
 
 # Valiadte settings on startup
 settings.validate()
@@ -56,10 +56,14 @@ app = FastAPI(
 )
 
 # CORS middleware (allow frontend to call API)
+# Note: allow_origins=["*"] together with allow_credentials=True is invalid
+# per the CORS spec - browsers reject it outright ("blocked by CORS policy"
+# even though the request succeeds server-side). We don't use cookies/auth
+# here, so credentials stay off.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production: specify exact origins
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -77,13 +81,20 @@ class QueryRequest(BaseModel):
             }
         }
     )
-    
+
     query: str = Field(..., description="Natural language business question", min_length=5)
     user_id: Optional[str] = Field(None, description="User identifier for tracking")
+    session_id: Optional[str] = Field(
+        None,
+        description="Conversation thread ID. Pass the session_id from a previous "
+                    "response to ask a follow-up question with context (e.g. "
+                    "'why did that happen'). Omit to start a new conversation."
+    )
 
 class QueryResponse(BaseModel):
     """Response model for analysis results"""
     query_id: str
+    session_id: str
     status: str
     query: str
     query_type: Optional[str] = None
@@ -179,7 +190,7 @@ async def analyze_query(request: QueryRequest):
 
     try:
         #Execute workflow
-        result = await workflow.run(request.query)
+        result = await workflow.run(request.query, session_id=request.session_id)
 
         # Determine status
         query_type = result.get('query_type', '')
@@ -196,6 +207,7 @@ async def analyze_query(request: QueryRequest):
         # Build response
         response = QueryResponse(
             query_id=f"q_{int(datetime.now().timestamp())}",
+            session_id=result.get('session_id'),
             status="success" if result.get('executive_summary') else "partial",
             query=request.query,
             query_type=result.get('query_type'),
@@ -235,7 +247,7 @@ async def analyze_query_stream(request: QueryRequest):
 
         try:
             # This is a simplified version - full streaming requires LangGraph streaming support
-            result = await workflow.run(request.query)
+            result = await workflow.run(request.query, session_id=request.session_id)
 
             # Send progress updates (simulated for now)
             for agent in result.get('agents_executed', []):
@@ -429,7 +441,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8010,  # 8000 is taken by another local app on this machine
         reload=True,  # Auto-reload on code changes
         log_level="info"
     )

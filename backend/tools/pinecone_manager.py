@@ -171,8 +171,8 @@ class PineconeManager:
                 'metadata': {k: v for k, v in match['metadata'].items() if k != 'content'}
             })
 
-            return formatted_results
-        
+        return formatted_results
+
     def delete_all(self, namespace: str = "default"):
         """Delete all vectors in namespace"""
         if self.index:

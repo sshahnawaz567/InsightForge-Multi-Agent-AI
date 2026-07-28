@@ -16,7 +16,7 @@ Produces:
 """
 from typing import Dict, Any, List, Optional
 from .base_agent import BaseAgent
-from openai import AsyncOpenAI
+from tools.llm_client import get_openai_client
 import json
 from datetime import datetime
 
@@ -29,7 +29,7 @@ class SynthesisAgent(BaseAgent):
     """
     def __init__(self, open_api_key: str, config: Optional[Dict] = None):
         super().__init__("synthesis", config)
-        self.client = AsyncOpenAI(api_key=open_api_key)
+        self.client = get_openai_client(open_api_key)
 
     def validate_input(self, input_data: Dict[str, Any]) -> bool:
         """Validate we have results to synthesize"""

@@ -39,7 +39,6 @@ class BaseAgent(ABC):
 
         # Execution tracking
         self.execution_history = []
-        self.retry_count = 0
         self.max_retries = self.config.get('max_retries', 3)
 
         # Metrics
@@ -89,13 +88,16 @@ class BaseAgent(ABC):
         """
         pass
 
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, input_data: Dict[str, Any], _retry_count: int = 0) -> Dict[str, Any]:
         """
         Main entry point with error handling and state management
-        
+
         Args:
             input_data: Inpur parameters
-        
+            _retry_count: internal - current retry attempt. Kept as a call
+                argument (not self.retry_count) so concurrent run() calls on
+                the same agent instance don't share/race a single counter.
+
         Returns:
             Agent execution result with metadata
         """
@@ -142,16 +144,16 @@ class BaseAgent(ABC):
             self.logger.error(f"Execution failed: {str(e)}", exc_info=True)
             
             # Retry logic
-            if self.retry_count < self.max_retries:
-                self.retry_count += 1
+            if _retry_count < self.max_retries:
+                next_retry = _retry_count + 1
                 self.state = AgentState.RETRY
-                self.logger.info(f"Retrying... (attempt {self.retry_count}/{self.max_retries})")
-                
+                self.logger.info(f"Retrying... (attempt {next_retry}/{self.max_retries})")
+
                 # Exponential backoff
                 import asyncio
-                await asyncio.sleep(2 ** self.retry_count)
-                
-                return await self.run(input_data)
+                await asyncio.sleep(2 ** next_retry)
+
+                return await self.run(input_data, _retry_count=next_retry)
             
             # Max retries exceeded
             self.failed_executions += 1
@@ -178,7 +180,7 @@ class BaseAgent(ABC):
         
     def get_metrics(self) -> Dict[str, Any]:
         """Get agent performance metrics"""
-        avg_time = (self.total_execution_time / self.total_execution_time
+        avg_time = (self.total_execution_time / self.total_executions
                     if self.total_executions > 0 else 0)
 
         success_rate = (self.successful_executions / self.total_executions * 100

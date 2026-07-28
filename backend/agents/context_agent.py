@@ -9,18 +9,19 @@ Data Sources:
 """
 from typing import Dict, Any, List, Optional
 from .base_agent import BaseAgent
-import json
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
+from tools.pinecone_manager import PineconeManager
+from config.settings import settings
 
 
 class ContextAgent(BaseAgent):
     """
     Finds context explaining why metrics changed
-    
+
     Example:
     Input: "Revenue dropped 79% in December"
-    Output: 
+    Output:
         - Holiday season (expected impact: -15%)
         - Competitor launched Dec 1st (news article found)
         - Shipping delays in Europe (industry report)
@@ -28,12 +29,27 @@ class ContextAgent(BaseAgent):
 
     def __init__(self, config: Optional[Dict] = None):
         super().__init__("context", config)
-        
+
         # Initialize embedding model (for RAG)
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        # Simulated knowledge base (Week 4)
-        # Week 5: Replace with real Pinecone + web search
+
+        # Real vector search via Pinecone, if configured; otherwise fall back
+        # to the in-memory knowledge base below.
+        self.pinecone_manager: Optional[PineconeManager] = None
+        if settings.PINECONE_API_KEY:
+            try:
+                self.pinecone_manager = PineconeManager(
+                    api_key=settings.PINECONE_API_KEY,
+                    index_name=settings.PINECONE_INDEX_NAME
+                )
+                if not self.pinecone_manager.index:
+                    self.pinecone_manager = None
+            except Exception as e:
+                self.logger.warning(f"Pinecone unavailable, using in-memory fallback: {e}")
+                self.pinecone_manager = None
+
+        # In-memory fallback knowledge base (used when Pinecone isn't configured
+        # or the index hasn't been seeded via backend/database/seed_pinecone.py)
         self.knowledge_base = self._load_knowledge_base()
 
     def _load_knowledge_base(self) -> List[Dict]:
@@ -114,31 +130,17 @@ class ContextAgent(BaseAgent):
     ) -> Dict[str, Any]:
         """
         Search for external factors explaining the change
-        
+
         Process:
-        1. Analyze what changed(from dependency results)
+        1. Analyze what changed (from dependency results)
         2. Generate search query
-        3. Search knowledge base (vector similarity)
+        3. Search knowledge base (Pinecone semantic search, or in-memory fallback)
         4. Rank by relevance
         """
 
         self.logger.info("Searching for external factors...")
-    
-        #Extract information from previous step
-        change_description = self._build_change_description(dependency_results)
-        time_period = params.get('time_period', {})
-        
-    
-    def _search_external_factors(
-        self,
-        params: Dict,
-        dependency_results: Dict
-    ) -> Dict[str, Any]:
-        """
-        Search for external factors using Pinecone semantic search
-        """
 
-        self.logger.info("Searching for external factors...")
+        search_method = 'pinecone' if self.pinecone_manager else 'fallback'
 
         # Build search query from previous results
         try:
@@ -160,27 +162,26 @@ class ContextAgent(BaseAgent):
                 'by_category': {},
                 'high_impact_factors': [],
                 'search_query': change_description,
-                'search_method': 'pinecone' if self.pinecone else 'fallback'  # ← Add this
+                'search_method': search_method
             }
-        
-        self.logger.info(f"Change description: {change_description}")
 
         # Search knowledge base using semantic similarity
         relevant_factors = self._semantic_search(change_description, time_period)
-        
+
         # Categorize factors
         categorized = self._categorize_factors(relevant_factors)
-        
+
         result = {
             'factors_found': len(relevant_factors),
             'factors': relevant_factors,
             'by_category': categorized,
             'high_impact_factors': [f for f in relevant_factors if f['impact'] == 'high'],
-            'search_query': change_description
+            'search_query': change_description,
+            'search_method': search_method
         }
-        
-        self.logger.info(f"Found {len(relevant_factors)} relevant factors")
-        
+
+        self.logger.info(f"Found {len(relevant_factors)} relevant factors ({search_method})")
+
         return result
 
     
@@ -233,16 +234,45 @@ class ContextAgent(BaseAgent):
         top_k: int = 5
     ) -> List[Dict]:
         """
-        Search knowledge base using semantic similarity
-        
-        In In production: Query Pinecone vector DB
-        Week 4: Simple keyword matching + date filtering
+        Search knowledge base using semantic similarity.
+
+        Uses real Pinecone vector search when configured; otherwise falls
+        back to keyword + date + impact scoring over the in-memory list.
         """
+        if self.pinecone_manager:
+            return self._pinecone_search(query, top_k)
 
-        #GEenaete embedding for query
-        query_embedding = self.embedding_model.encode(query)
+        return self._keyword_search(query, time_period, top_k)
 
-        # calculate similarty with each knwoledge abse entry
+    def _pinecone_search(self, query: str, top_k: int) -> List[Dict]:
+        """Real semantic search against the Pinecone knowledge base."""
+        try:
+            matches = self.pinecone_manager.search(
+                query=query,
+                top_k=top_k,
+                namespace="knowledge_base"
+            )
+        except Exception as e:
+            self.logger.warning(f"Pinecone search failed, falling back to keyword search: {e}")
+            return self._keyword_search(query, {}, top_k)
+
+        results = []
+        for match in matches:
+            metadata = match.get('metadata', {})
+            results.append({
+                'id': match.get('id'),
+                'content': match.get('content', ''),
+                'category': metadata.get('category', 'other'),
+                'impact': metadata.get('impact', 'medium'),
+                'source': metadata.get('source', 'Pinecone'),
+                'date': metadata.get('date', ''),
+                'relevance_score': round(float(match.get('score', 0)), 2)
+            })
+
+        return results
+
+    def _keyword_search(self, query: str, time_period: Dict, top_k: int) -> List[Dict]:
+        """Fallback: simple keyword + date + impact scoring over the in-memory list."""
         scored_items = []
 
         for item in self.knowledge_base:

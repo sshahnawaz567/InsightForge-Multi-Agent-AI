@@ -7,12 +7,12 @@ CRITICAL: Prevenets halluciantonns by grounding in actual database schema
 
 from typing import Dict, Any, Optional, List
 from .base_agent import BaseAgent
-from openai import AsyncOpenAI
+from tools.llm_client import get_openai_client
 import asyncpg
 import sqlparse
 import json
 from datetime import datetime, timedelta
-from backend.tools.cache_manager import CacheManager
+from tools.cache_manager import CacheManager
 
 class SQLGenerationAgent(BaseAgent):
     """
@@ -31,7 +31,7 @@ class SQLGenerationAgent(BaseAgent):
         config: Optional[Dict] = None
     ):
         super().__init__("sql_generation", config)
-        self.client = AsyncOpenAI(api_key=openai_api_key)
+        self.client = get_openai_client(openai_api_key)
         self.database_url = database_url
         self.db_pool = None
         self.schema_cache = None

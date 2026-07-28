@@ -26,6 +26,14 @@ class Settings:
     PINECONE_ENVIRONMENT: str = os.getenv('PINECONE_ENVIRONMENT', 'us-west1-gcp')
     PINECONE_INDEX_NAME: str = os.getenv('PINECONE_INDEX_NAME', 'insightforge-context')
 
+    # LangSmith (tracing, token usage, cost per agent call)
+    # LANGSMITH_TRACING / LANGSMITH_API_KEY / LANGSMITH_PROJECT are read
+    # directly from the environment by the langsmith/langchain SDKs - these
+    # attributes just mirror them here so we can warn if they're missing.
+    LANGSMITH_TRACING: bool = os.getenv('LANGSMITH_TRACING', 'false').lower() == 'true'
+    LANGSMITH_API_KEY: str = os.getenv('LANGSMITH_API_KEY', '')
+    LANGSMITH_PROJECT: str = os.getenv('LANGSMITH_PROJECT', 'insightforge')
+
 
     # Agent Configuration
     AGENT_MAX_RETRIES: int = 3
@@ -53,7 +61,13 @@ class Settings:
         # Pinecone is optional for now
         if not cls.PINECONE_API_KEY:
             print("⚠️  Warning: PINECONE_API_KEY not set (Context Agent will use in-memory fallback)")
-        
+
+        # LangSmith is optional - app works fine without tracing
+        if cls.LANGSMITH_TRACING and not cls.LANGSMITH_API_KEY:
+            print("⚠️  Warning: LANGSMITH_TRACING is true but LANGSMITH_API_KEY not set (tracing disabled)")
+        elif not cls.LANGSMITH_TRACING:
+            print("ℹ️  LangSmith tracing disabled (set LANGSMITH_TRACING=true in .env to enable)")
+
         if errors:
             raise ValueError("Configuration errors:\n" + "\n".join(errors))
         

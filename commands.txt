@@ -1,3 +1,38 @@
+# Viewing resources
+kubectl get pods -n insightforge
+kubectl get services -n insightforge
+kubectl get deployments -n insightforge
+kubectl get all -n insightforge
+
+# Describing resources (detailed info)
+kubectl describe pod <pod-name> -n insightforge
+kubectl describe service backend-service -n insightforge
+
+# Logs
+kubectl logs -n insightforge <pod-name>
+kubectl logs -n insightforge -l app=backend  # All backend pods
+kubectl logs -n insightforge <pod-name> -f   # Follow
+
+# Exec into pod (like docker exec)
+kubectl exec -it -n insightforge <pod-name> -- bash
+kubectl exec -it -n insightforge <pod-name> -- python
+
+# Port forwarding
+kubectl port-forward -n insightforge service/backend-service 8080:80
+
+# Scaling manually
+kubectl scale deployment backend -n insightforge --replicas=5
+
+# Delete resources
+kubectl delete pod <pod-name> -n insightforge
+kubectl delete -f k8s/  # Delete all
+kubectl delete namespace insightforge  # Delete everything!
+
+# Update deployment (after code change)
+kubectl rollout restart deployment backend -n insightforge
+kubectl rollout status deployment backend -n insightforge
+kubectl rollout undo deployment backend -n insightforge  # Rollback
+
 minikube stop      # Stop cluster
 minikube delete    # Delete cluster
 minikube dashboard # Open web UI

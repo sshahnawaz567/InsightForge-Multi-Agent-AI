@@ -5,7 +5,7 @@ Creates multi step execution plans for complex queries
 
 from typing import Dict, Any, List, Optional
 from .base_agent import BaseAgent
-from openai import AsyncOpenAI
+from tools.llm_client import get_openai_client
 import json
 from collections import defaultdict
 
@@ -23,7 +23,7 @@ class PlanningAgent(BaseAgent):
 
     def __init__(self, openai_api_key: str, config: Optional[Dict] = None):
         super().__init__("planning", config)
-        self.client = AsyncOpenAI(api_key=openai_api_key)
+        self.client = get_openai_client(openai_api_key)
 
         # Available agents this orchestrator can call
         self.available_agents = {

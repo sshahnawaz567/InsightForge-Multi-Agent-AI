@@ -18,6 +18,8 @@ class AgentState(TypedDict):
     # User Input
     query: str                          # Original user question
     timestamp: str                      # When query was asked
+    session_id: str                     # Conversation thread ID (for memory)
+    conversation_history: List[Dict]    # Past turns in this session: {query, executive_summary, timestamp}
     
     # Query Understanding Output
     parsed_query: Optional[Dict]        # Structured query requirements

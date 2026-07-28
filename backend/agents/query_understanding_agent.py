@@ -5,7 +5,7 @@ Converts natural language queries into structrure analysis requirements
 
 from typing import Dict, Any, Optional, Any
 import json
-from openai import AsyncOpenAI
+from tools.llm_client import get_openai_client
 from .base_agent import BaseAgent
 
 class QueryUnderstandingAgent(BaseAgent):
@@ -27,7 +27,7 @@ class QueryUnderstandingAgent(BaseAgent):
     
     def __init__(self, openai_api_key: str, config: Optional[Dict] = None):
         super().__init__("query_understanding", config)
-        self.client = AsyncOpenAI(api_key=openai_api_key)
+        self.client = get_openai_client(openai_api_key)
         self.system_prompt = self._build_system_prompt()
     
     def _build_system_prompt(self) -> str:
@@ -122,6 +122,10 @@ Rules:
 4. Confidence < 0.7 if query is vague
 5. List ambiguities if anything unclear
 6. ONLY output valid JSON, no explanations
+7. If a "Recent conversation" section is provided, use it to resolve
+   follow-up references (e.g. "why did that happen", "what about Europe")
+   to concrete metrics/dimensions/time periods from the earlier turns.
+   Do not lower confidence just because the query relies on prior context.
 
 Current date: {current_date}
 """
@@ -139,20 +143,33 @@ Current date: {current_date}
         """Parse natural language query into structrured format"""
 
         user_query = input_data['query'].strip()
-        self.logger.info(f"Parsing query: '{user_query}'")
+        conversation_history = input_data.get('conversation_history', [])
+        self.logger.info(f"Parsing query: '{user_query}' (history: {len(conversation_history)} turns)")
 
         # Get current date for context
         from datetime import datetime
         current_date = datetime.now().strftime("%Y-%m-%d")
         system_prompt = self.system_prompt.replace("{current_date}", current_date)
 
+        user_content = user_query
+        if conversation_history:
+            history_lines = []
+            for turn in conversation_history[-3:]:
+                history_lines.append(f"Q: {turn.get('query', '')}")
+                if turn.get('executive_summary'):
+                    history_lines.append(f"A: {turn['executive_summary']}")
+            user_content = (
+                "Recent conversation:\n" + "\n".join(history_lines) +
+                f"\n\nCurrent question: {user_query}"
+            )
+
         try:
             # Call openAI with JSON mode
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_query}
+                    {"role": "user", "content": user_content}
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,

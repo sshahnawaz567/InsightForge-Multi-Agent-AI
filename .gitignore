@@ -1,19 +1,45 @@
 # Virtual Environment
 venv/
+.venv/
 .env
+.env.local
+.env.*.local
 
-# Python cache
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
 
-# VS Code
+# Node / frontend (frontend/ has its own .gitignore too - this is a backstop)
+node_modules/
+frontend/dist/
+frontend/.output/
+frontend/.vinxi/
+frontend/.tanstack/
+frontend/.nitro/
+frontend/.wrangler/
+
+# Editors / IDE
 .vscode/
+.idea/
+*.swp
 
 # Logs
 *.log
+npm-debug.log*
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets
+k8s/secret.yaml
